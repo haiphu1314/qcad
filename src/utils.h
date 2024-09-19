@@ -33,7 +33,7 @@ typedef enum {
     INT8
 } quant_type;
 
-int bitCount(int n);
+int bitCount(qtype n);
 int sign(int x);
 int count_layers(const char* filename);
 float *flatto1d(float *input, int input_channel, int input_height, int input_width);

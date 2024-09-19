@@ -4,7 +4,7 @@
  * @ Author: Hai Phu
  * @ Email:  haiphu@hcmut.edu.vn
  * @ Create Time: 2024-07-07 21:00:35
- * @ Modified time: 2024-09-19 17:57:03
+ * @ Modified time: 2024-09-19 21:45:24
  * @ Description:
  */
 
@@ -15,6 +15,9 @@
 #include "utils.h"
 #include "float.h"
 #include <stdint.h>
+
+#include <time.h>
+#define RAND
 // #define MC
 /**
  * @brief Creates and initializes a convolutional layer with specified parameters.
@@ -54,6 +57,7 @@ conv2d_layer *create_conv2d_layer(int input_channel, int output_channel, int ker
     int dim2 = inputq_size;
     int dim3 = kernel_size;
     int dim4 = kernel_size;
+    srand(time(0));
     switch (quant)
     {
     case BNN:
@@ -65,7 +69,13 @@ conv2d_layer *create_conv2d_layer(int input_channel, int output_channel, int ker
             fprintf(stderr, "Memory allocation failed for weights\n");
             exit(1);
         }
+        #ifdef RAND
+        for (int i = 0; i < dim1 * dim2 * dim3 * dim4; ++i) {
+            layer->weights_b[i] = (qtype)rand(); // Sinh số ngẫu nhiên giữa 0 và 1
+        }
+        #endif
         break;
+        
     case TNN:
         layer->weights_t0 = (qtype*)malloc(dim1 * dim2 * dim3 * dim4 * sizeof(qtype*));
         if (layer->weights_t0 == NULL)
@@ -73,21 +83,35 @@ conv2d_layer *create_conv2d_layer(int input_channel, int output_channel, int ker
             fprintf(stderr, "Memory allocation failed for weights_0\n");
             exit(1);
         }
+
         layer->weights_t1 = (qtype*)malloc(dim1 * dim2 * dim3 * dim4 * sizeof(qtype*));
         if (layer->weights_t1 == NULL)
         {
             fprintf(stderr, "Memory allocation failed for weights_1\n");
             exit(1);
         }
+        #ifdef RAND
+        for (int i = 0; i < dim1 * dim2 * dim3 * dim4; ++i) {
+            layer->weights_t0[i] = (qtype)rand();
+            layer->weights_t1[i] = (qtype)rand();
+        }
+        #endif
         break;
+
     case FP:
-        //printf("%d \n", dim1 * dim2 * dim3 * dim4);
-        layer->weights_f = (float*)malloc(dim1 * dim2 * dim3 * dim4 * sizeof(float*));
+        // printf("%d \n", dim1 * dim2 * dim3 * dim4);
+        layer->weights_f = (float*)malloc(dim1 * input_channel * dim3 * dim4 * sizeof(float*));
         if (layer->weights_f == NULL)
         {
             fprintf(stderr, "Memory allocation failed for weights\n");
             exit(1);
         }
+        #ifdef RAND
+        for (int i = 0; i < dim1 * dim2 * dim3 * dim4; ++i) {
+            layer->weights_f[i] = (float)rand();
+
+        }
+        #endif
         break;
     default:
         fprintf(stderr, "create_conv_layer: Unknown quantization type \n");
@@ -214,11 +238,11 @@ float *conv2d_forward(conv2d_layer *layer, float *input, int input_height, int i
                                 else
                                 {
                                     // Truy xuất giá trị từ mảng và lưu vào biến tạm
-                                    unsigned char input_b = input_quant[kc*padded_y*padded_x].b;
-                                    unsigned char weight_b = layer->weights_b[co*kc*ky*kx];
+                                    qtype input_b = input_quant[kc*padded_y*padded_x].b;
+                                    qtype weight_b = layer->weights_b[co*kc*ky*kx];
 
                                     // Tính toán kết quả bit XOR
-                                    int result_bit = input_b ^ weight_b;
+                                    qtype result_bit = input_b ^ weight_b;
 
                                     // Đếm số bit khác nhau (bitCount)
                                     cnt_minus_one += bitCount(result_bit);
@@ -276,12 +300,12 @@ float *conv2d_forward(conv2d_layer *layer, float *input, int input_height, int i
                                     int weight = layer->weights_b[co*kc*ky*kx];
                                     int i_weight = ~weight;
 
-                                    unsigned char bit_1 = input_quant[kc*padded_y*padded_x].t.bit_1;
-                                    unsigned char bit_0 = input_quant[kc*padded_y*padded_x].t.bit_0;
+                                    qtype bit_1 = input_quant[kc*padded_y*padded_x].t.bit_1;
+                                    qtype bit_0 = input_quant[kc*padded_y*padded_x].t.bit_0;
 
                                     // Tính toán kết quả từ các bit
-                                    int result_bit0 = (bit_1 & i_weight) | (bit_0 & weight);
-                                    int result_bit1 = (bit_1 & weight) | (bit_0 & i_weight);
+                                    qtype result_bit0 = (bit_1 & i_weight) | (bit_0 & weight);
+                                    qtype result_bit1 = (bit_1 & weight) | (bit_0 & i_weight);
 
                                     // Sử dụng hàm đếm bit đã tối ưu
                                     cnt_minus_one += bitCount(result_bit0);
@@ -303,6 +327,7 @@ float *conv2d_forward(conv2d_layer *layer, float *input, int input_height, int i
 #ifdef MC
     #pragma omp parallel for collapse(3)
 #endif
+
         for (int co = 0; co < output_channel; co++)
         {
             for (int y = 0; y < output_height; y++)
@@ -335,13 +360,13 @@ float *conv2d_forward(conv2d_layer *layer, float *input, int input_height, int i
                                 else
                                 {
                                     // Lưu trữ biến tạm để tránh truy cập nhiều lần vào mảng
-                                    unsigned char bit_1 = input_quant[kc*padded_y*padded_x].t.bit_1;
-                                    unsigned char bit_0 = input_quant[kc*padded_y*padded_x].t.bit_0;
-                                    unsigned char weight_t0 = layer->weights_t0[co*kc*ky*kx];
-                                    unsigned char weight_t1 = layer->weights_t1[co*kc*ky*kx];
+                                    qtype bit_1 = input_quant[kc*padded_y*padded_x].t.bit_1;
+                                    qtype bit_0 = input_quant[kc*padded_y*padded_x].t.bit_0;
+                                    qtype weight_t0 = layer->weights_t0[co*kc*ky*kx];
+                                    qtype weight_t1 = layer->weights_t1[co*kc*ky*kx];
 
-                                    int result_bit0 = (bit_1 & weight_t0) | (bit_0 & weight_t1);
-                                    int result_bit1 = (bit_1 & weight_t1) | (bit_0 & weight_t0);
+                                    qtype result_bit0 = (bit_1 & weight_t0) | (bit_0 & weight_t1);
+                                    qtype result_bit1 = (bit_1 & weight_t1) | (bit_0 & weight_t0);
 
                                     // Sử dụng các hàm đếm bit đã tối ưu
                                     cnt_minus_one += bitCount(result_bit0);
@@ -358,6 +383,7 @@ float *conv2d_forward(conv2d_layer *layer, float *input, int input_height, int i
 
         break;
     case FP:
+    // printf("%d\n",output_channel*input_channel*kernel_size*kernel_size);
 #ifdef MC
     #pragma omp parallel for collapse(3)
 #endif
